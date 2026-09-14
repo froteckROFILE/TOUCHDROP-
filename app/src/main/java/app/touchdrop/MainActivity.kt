@@ -265,9 +265,9 @@ class MainActivity : Activity() {
             if((sender&&(state!="CONNECTING"||peer!=id))||(!sender&&(state!="SEARCH"||peer!=null))||++attempts>5||info.authenticationDigits.isBlank()) {radio.rejectConnection(id);return}
             peer=id;state="AUTH";touch();radio.stopAdvertising();val generation=epoch
             touchConfirmed=false;armNfc(info,generation)
-            authDialog=AlertDialog.Builder(this@MainActivity).setTitle("Touchez les dos des téléphones")
-                .setMessage("${info.endpointName.take(40)}\n\n${info.authenticationDigits}\n\nNFC activé : rapprochez les antennes au dos pour confirmer automatiquement. Sinon, comparez ce code avant de confirmer.")
-                .setPositiveButton("Le code est identique"){_,_->
+            authDialog=AlertDialog.Builder(this@MainActivity).setTitle("📱  CONTACT NFC")
+                .setMessage("${info.endpointName.take(40)}\n\n1. Gardez les deux écrans déverrouillés.\n2. Rapprochez les faces arrière des deux smartphones (côté caméras).\n3. Maintenez-les dos contre dos pendant 1 à 2 secondes.\n\nLe téléphone vibrera et affichera « Contact NFC confirmé ».\n\nSi le contact NFC ne fonctionne pas, vérifiez ce code :\n${info.authenticationDigits}")
+                .setPositiveButton("Confirmer par le code"){_,_->
                     if(epoch==generation&&state=="AUTH"){state="AUTH_WAIT";touch();radio.acceptConnection(id,payloads).addOnFailureListener{if(epoch==generation)stop("Confirmation échouée.")};status.text="Attente de la confirmation de l’autre téléphone…"}
                 }.setNegativeButton("Refuser"){_,_->radio.rejectConnection(id);stop("Connexion refusée.")}
                 .setOnCancelListener{radio.rejectConnection(id);stop("Connexion annulée.")}.show()
@@ -276,8 +276,9 @@ class MainActivity : Activity() {
         override fun onConnectionResult(id:String,result:ConnectionResolution){
             if(id!=peer||state!="AUTH_WAIT")return
             if(!result.status.isSuccess){stop("Connexion refusée ou interrompue.");return}
-            clearNfc();verified=true;state="CONNECTED";touch();status.text="Connexion vérifiée. ${if(sender)"Proposition du lot…" else "Attente des fichiers…"}"
-            if(sender){batchId=UUID.randomUUID().toString();index=0;completed=0;state="OFFER_WAIT";val arr=JSONArray();files.forEach{arr.put(JSONObject().put("name",it.name).put("mime",it.mime).put("size",it.size).put("sha",it.sha))};send(JSONObject().put("t","offer").put("batch",batchId).put("files",arr))}
+            clearNfc();verified=true;state="CONNECTED";touch();status.text=if(touchConfirmed)"Contact NFC confirmé · connexion vérifiée." else "Connexion vérifiée par code."
+            if(touchConfirmed)Toast.makeText(this@MainActivity,"Contact NFC confirmé",Toast.LENGTH_SHORT).show()
+            if(sender){status.text=if(touchConfirmed)"Contact NFC confirmé · proposition du lot…" else "Connexion vérifiée · proposition du lot…";batchId=UUID.randomUUID().toString();index=0;completed=0;state="OFFER_WAIT";val arr=JSONArray();files.forEach{arr.put(JSONObject().put("name",it.name).put("mime",it.mime).put("size",it.size).put("sha",it.sha))};send(JSONObject().put("t","offer").put("batch",batchId).put("files",arr))}
         }
         override fun onDisconnected(id:String){if(id==peer)stop(if(state=="DONE")"Transfert terminé. Téléphone déconnecté." else "Liaison coupée. Les fichiers déjà sauvegardées restent dans la galerie ; recommencez les autres.")}
     }
@@ -296,7 +297,8 @@ class MainActivity : Activity() {
                 if(epoch==generation&&state=="AUTH"){
                     touchConfirmed=true;state="AUTH_WAIT";authDialog?.dismiss();touch()
                     radio.acceptConnection(peer!!,payloads).addOnFailureListener{if(epoch==generation)stop("Contact confirmé mais connexion échouée.")}
-                    status.text="Contact NFC vérifié · connexion…"
+                    status.text="Contact NFC confirmé · connexion…"
+                    Toast.makeText(this@MainActivity,"Contact NFC confirmé",Toast.LENGTH_SHORT).show()
                 }
             }
         }
