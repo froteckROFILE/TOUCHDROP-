@@ -19,8 +19,8 @@ class SandView(context:Context):View(context){
         set(value){field=value.coerceIn(0f,1f);invalidate()}
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
     private val random=Random(71)
-    private val grains=Array(5500){floatArrayOf(random.nextFloat(),random.nextFloat(),random.nextFloat(),random.nextFloat())}
-    private val colors=IntArray(5500){Color.rgb(238,183,75)}
+    private val grains=Array(8200){floatArrayOf(random.nextFloat(),random.nextFloat(),random.nextFloat(),random.nextFloat())}
+    private val colors=IntArray(8200){Color.rgb(238,183,75)}
     private val started=System.nanoTime()
     private var smooth=0f
     override fun onDraw(c:Canvas){
@@ -43,15 +43,20 @@ class SandView(context:Context):View(context){
         }
         grains.forEachIndexed{grainIndex,g->
             val x=left+(right-left)*g[0];val y=top+(bottom-top)*g[1]
-            val shift=((dissolve-g[1])/.32f).coerceIn(0f,1f)
+            val shift=((dissolve-g[1])/.38f).coerceIn(0f,1f)
             if(shift>0f&&shift<1f){
+                val depth=.62f+g[2]*.72f
                 val px=x+sin(t*1.8+g[2]*12+shift*5).toFloat()*w*.1f*shift+(g[2]-.5f)*w*.45f*shift
                 val py=y-shift*(h+g[3]*h*.4f)
                 val base=colors[grainIndex]
                 paint.color=if(g[3]>.45f)Color.rgb(255,202,98) else base
-                paint.alpha=((1f-shift)*235).toInt()
-                c.drawCircle(px,py,1.3f+g[2]*3.1f,paint)
-                if(g[3]>.88f){paint.alpha=50;paint.strokeWidth=1.2f;c.drawLine(px,py,px-4,py+14*shift,paint)}
+                paint.alpha=((1f-shift)*(145f+depth*100f)).toInt()
+                val radius=(.75f+g[2]*3.6f)*depth
+                if(g[3]>.72f){
+                    paint.alpha=(paint.alpha*.16f).toInt();c.drawCircle(px,py,radius*4.8f,paint)
+                }
+                paint.alpha=((1f-shift)*(145f+depth*100f)).toInt();c.drawCircle(px,py,radius,paint)
+                if(g[3]>.82f){paint.alpha=65;paint.strokeWidth=maxOf(1f,radius*.42f);c.drawLine(px,py,px-5-radius,py+14*shift,paint)}
             }
         }
         paint.alpha=255;paint.color=Color.rgb(243,204,124);paint.textSize=13*resources.displayMetrics.scaledDensity
