@@ -1,6 +1,8 @@
 name: Build Touchdrop APK
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
