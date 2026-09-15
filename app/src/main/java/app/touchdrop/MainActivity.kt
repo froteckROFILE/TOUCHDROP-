@@ -89,14 +89,32 @@ class MainActivity : Activity() {
         val launchRoot=findViewById<android.view.ViewGroup>(android.R.id.content)
         val home=launchRoot.getChildAt(0)
         home.alpha=0f;home.scaleX=.96f;home.scaleY=.96f
-        val intro=IntroView(this)
+        // Branded MP4 intro: the supplied gold-sand BNET film plays once,
+        // then dissolves into the real app instead of showing a static card.
+        val intro=FrameLayout(this).apply{
+            setBackgroundColor(Color.BLACK)
+            contentDescription="TOUCHDROP — BNET golden sand intro"
+            elevation=dp(20).toFloat()
+        }
+        val introVideo=VideoView(this).apply{
+            setBackgroundColor(Color.BLACK)
+            setVideoURI(Uri.parse("android.resource://$packageName/${R.raw.touchdrop_intro}"))
+            setOnPreparedListener{player->player.isLooping=false;player.setVolume(1f,1f);start()}
+        }
+        intro.addView(introVideo,FrameLayout.LayoutParams(-1,-1))
         launchRoot.addView(intro,android.view.ViewGroup.LayoutParams(-1,-1))
-        handler.postDelayed({
-            if(!isDestroyed){
-                home.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(1800).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
-                intro.animate().alpha(0f).setDuration(1800).withEndAction{if(!isDestroyed)launchRoot.removeView(intro)}.start()
-            }
-        },IntroView.DURATION_MS-1800)
+        var introClosed=false
+        fun closeIntro(){
+            if(introClosed||isDestroyed)return
+            introClosed=true
+            introVideo.stopPlayback()
+            home.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(1400).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            intro.animate().alpha(0f).setDuration(1400).withEndAction{if(!isDestroyed)launchRoot.removeView(intro)}.start()
+        }
+        introVideo.setOnCompletionListener{closeIntro()}
+        introVideo.setOnErrorListener{_,_,_->closeIntro();true}
+        // Safety fallback if a device refuses hardware video decoding.
+        handler.postDelayed({closeIntro()},15000L)
         handler.post(object:Runnable { override fun run(){
             if(state !in listOf("IDLE","DONE") && SystemClock.elapsedRealtime()-lastActivity > if(state=="SEARCH")120000 else 60000) stop("Délai dépassé. Relancez la recherche.")
             handler.postDelayed(this,1000)
@@ -394,11 +412,45 @@ class MainActivity : Activity() {
     }
     private fun fileCard(name:String,mime:String):Bitmap{
         val bitmap=Bitmap.createBitmap(512,512,Bitmap.Config.ARGB_8888)
-        val canvas=Canvas(bitmap);canvas.drawColor(Color.rgb(23,21,17))
-        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(247,207,126);textSize=64f;typeface=Typeface.DEFAULT_BOLD}
-        val type=when{mime.startsWith("video/")->"VIDÉO";mime.startsWith("audio/")->"AUDIO";mime=="application/pdf"->"PDF";else->"FICHIER"}
-        canvas.drawText(type,38f,220f,p);p.textSize=24f;p.color=Color.WHITE
-        name.take(64).chunked(28).forEachIndexed{i,line->canvas.drawText(line,38f,290f+i*34,p)}
+        val canvas=Canvas(bitmap)
+        val isVideo=mime.startsWith("video/");val isAudio=mime.startsWith("audio/");val isPdf=mime=="application/pdf"
+        val accent=when{isVideo->Color.rgb(126,170,255);isAudio->Color.rgb(219,142,255);isPdf->Color.rgb(255,182,92);else->Color.rgb(247,207,126)}
+        val deep=when{isVideo->Color.rgb(18,32,68);isAudio->Color.rgb(42,20,58);isPdf->Color.rgb(62,31,16);else->Color.rgb(35,29,18)}
+        val card=RectF(14f,14f,498f,498f)
+        canvas.drawRoundRect(card,38f,38f,Paint(Paint.ANTI_ALIAS_FLAG).apply{
+            shader=LinearGradient(14f,14f,498f,498f,deep,Color.rgb(12,14,22),Shader.TileMode.CLAMP)
+        })
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{typeface=Typeface.create("sans-serif-black",Typeface.BOLD)}
+        val dust=Random(name.hashCode().toLong())
+        repeat(180){
+            p.style=Paint.Style.FILL;p.color=accent;p.alpha=30+dust.nextInt(100)
+            canvas.drawCircle(24f+dust.nextFloat()*464f,24f+dust.nextFloat()*464f,.5f+dust.nextFloat()*2.8f,p)
+        }
+        p.style=Paint.Style.STROKE;p.strokeWidth=3f;p.color=accent;p.alpha=190
+        canvas.drawRoundRect(RectF(28f,28f,484f,484f),30f,30f,p)
+        p.style=Paint.Style.FILL;p.alpha=255;p.textSize=34f;p.color=accent
+        val type=when{isVideo->"VIDÉO";isAudio->"AUDIO";isPdf->"PDF";else->"FICHIER"}
+        canvas.drawText(type,44f,92f,p)
+        if(isVideo){
+            p.color=Color.argb(220,255,255,255);canvas.drawCircle(256f,220f,72f,p)
+            p.color=deep
+            canvas.drawPath(Path().apply{moveTo(238f,180f);lineTo(238f,260f);lineTo(300f,220f);close()},p)
+            p.color=accent;p.alpha=120;p.style=Paint.Style.STROKE;p.strokeWidth=5f
+            canvas.drawCircle(256f,220f,86f,p)
+        }else if(isPdf){
+            p.color=Color.argb(225,255,255,255);canvas.drawRoundRect(RectF(202f,145f,310f,292f),12f,12f,p)
+            p.color=accent;p.style=Paint.Style.FILL
+            canvas.drawPath(Path().apply{moveTo(274f,145f);lineTo(310f,181f);lineTo(274f,181f);close()},p)
+            p.color=deep;p.textSize=28f;canvas.drawText("PDF",214f,246f,p)
+        }else{
+            p.color=Color.argb(225,255,255,255);canvas.drawRoundRect(RectF(206f,145f,306f,292f),12f,12f,p)
+            p.color=accent;p.style=Paint.Style.STROKE;p.strokeWidth=7f
+            canvas.drawLine(226f,190f,286f,190f,p);canvas.drawLine(226f,222f,286f,222f,p);canvas.drawLine(226f,254f,270f,254f,p)
+        }
+        p.style=Paint.Style.FILL;p.color=Color.WHITE;p.alpha=245;p.textSize=21f
+        name.take(84).chunked(27).take(3).forEachIndexed{i,line->canvas.drawText(line,44f,350f+i*29,p)}
+        p.color=accent;p.alpha=220;p.textSize=16f
+        canvas.drawText(if(isVideo)"APERÇU VIDÉO  ·  ORIGINAL" else "ORIGINAL  ·  PRÊT À TRANSFÉRER",44f,462f,p)
         return bitmap
     }
     private fun wifiAddresses():List<String>{
@@ -523,6 +575,10 @@ class MainActivity : Activity() {
     private fun showProgress(done:Long,total:Long){
         val seconds=((SystemClock.elapsedRealtime()-transferStarted)/1000.0).coerceAtLeast(.1)
 bar.progress=if(total>0)((done*100/total).toInt()).coerceAtMost(99) else 0;progressText.text="${bar.progress} % · ${mb(done)} / ${mb(total)} Mo · ${String.format(java.util.Locale.FRANCE,"%.1f",done/1048576.0/seconds)} Mo/s";stageText.text="WI-FI LOCAL · "+progressText.text}
+    /** Stop the active transport without discarding a prepared outgoing batch.
+     * A Wi‑Fi/Nearby disconnect is a transport event, not a new file selection:
+     * keeping the staged originals lets the user reconnect and retry safely.
+     */
     private fun stop(message:String){
         runCatching{wifiSocket?.close()};runCatching{wifiServer?.close()};wifiSocket=null;wifiServer=null
         stage.visibility=View.GONE
@@ -532,9 +588,19 @@ bar.progress=if(total>0)((done*100/total).toInt()).coerceAtMost(99) else 0;progr
         nativeId=null;nativePayload=null;sand.amount=0f
         epoch++;state="IDLE";verified=false;peer=null;preparing=false;authDialog?.dismiss();authDialog=null
         runCatching{radio.stopAdvertising();radio.stopDiscovery();radio.stopAllEndpoints()};runCatching{output?.close()};output=null;currentFile?.delete();currentFile=null
-        files.forEach{it.file?.delete()};files=emptyList();incoming=emptyList();devices.removeAllViews();previews?.removeAllViews();chosen.text="Aucune image sélectionnée";status.text=message;progressText.text=if(bar.progress==100)"100 % · terminé" else "Transfert arrêté";controls();window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Keep the prepared outgoing files and their previews. They are deleted
+        // only after a successful batch (finishBatch) or when the user chooses
+        // a new selection. This prevents a brief disconnect from losing work.
+        incoming=emptyList();devices.removeAllViews()
+        chosen.text=if(files.isEmpty())"Aucune image sélectionnée" else "${files.size} fichiers prêts · sélection conservée"
+        status.text="$message  Vous pouvez relancer l’envoi sans re-sélectionner."
+        progressText.text=if(bar.progress==100)"100 % · terminé" else "Transfert arrêté · fichiers conservés"
+        controls();window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
-    override fun onStop(){if(!picking&&(state !in listOf("IDLE","DONE")||preparing))stop("Application mise en arrière-plan : transfert arrêté. Gardez les deux écrans ouverts.");super.onStop()}
+    // Android may call onStop while a Nearby permission/authentication window
+    // is being shown. Do not tear down the transport from that lifecycle hook;
+    // explicit Stop, timeout, disconnect, or destruction still performs cleanup.
+    override fun onStop(){super.onStop()}
     override fun onDestroy(){runCatching{wifiSocket?.close()};runCatching{wifiServer?.close()};clearNfc();epoch++;handler.removeCallbacksAndMessages(null);runCatching{radio.stopAllEndpoints();radio.stopAdvertising();radio.stopDiscovery();output?.close()};files.forEach{it.file?.delete()};currentFile?.delete();worker.shutdown();super.onDestroy()}
     private fun hex(bytes:ByteArray)=bytes.joinToString(""){"%02x".format(it)}
     private fun mb(n:Long)=String.format(java.util.Locale.FRANCE,"%.1f",n/1048576.0)
