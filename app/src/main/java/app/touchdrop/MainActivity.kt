@@ -100,6 +100,11 @@ class MainActivity : Activity() {
         }
         val introVideo=VideoView(this).apply{
             setBackgroundColor(Color.BLACK)
+            // VideoView uses a SurfaceView on many Android versions. Keep its
+            // surface above the already-built home screen so the first frame
+            // cannot be hidden by the app content underneath it.
+            setZOrderOnTop(true)
+            keepScreenOn=true
             setVideoURI(Uri.parse("android.resource://$packageName/${R.raw.touchdrop_intro}"))
             setOnPreparedListener{player->player.isLooping=false;player.setVolume(1f,1f);start()}
         }
@@ -115,8 +120,10 @@ class MainActivity : Activity() {
         }
         introVideo.setOnCompletionListener{closeIntro()}
         introVideo.setOnErrorListener{_,_,_->closeIntro();true}
-        // Safety fallback if a device refuses hardware video decoding.
-        handler.postDelayed({closeIntro()},15000L)
+        // Safety fallback if a device refuses hardware video decoding or takes
+        // unusually long to prepare the resource. Normal playback completes
+        // in about ten seconds and closes through the completion callback.
+        handler.postDelayed({closeIntro()},20000L)
         handler.post(object:Runnable { override fun run(){
             if(state !in listOf("IDLE","DONE") && SystemClock.elapsedRealtime()-lastActivity > if(state=="SEARCH")120000 else 60000) stop("Délai dépassé. Relancez la recherche.")
             handler.postDelayed(this,1000)
