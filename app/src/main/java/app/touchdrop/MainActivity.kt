@@ -36,6 +36,7 @@ import android.util.Base64
 /** Foreground-only, one verified peer, bounded sequential transfer protocol. */
 class MainActivity : Activity() {
     private val service = "app.touchdrop.files.v5"
+    private val maxTransferAttempts = 3
     private val radio by lazy { Nearby.getConnectionsClient(this) }
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -485,16 +486,36 @@ class MainActivity : Activity() {
         stage.visibility=View.VISIBLE;stageText.text="WI-FI LOCAL · attente de la liaison…"
         send(base("fileReady").put("payload",nativeId).put("hosts",JSONArray(addresses)).put("port",server.localPort).put("key",Base64.encodeToString(key,Base64.NO_WRAP)))
         worker.execute{
-            try{
-                server.accept().use{socket->
-                    wifiSocket=socket;socket.soTimeout=20000;socket.receiveBufferSize=1024*1024
-                    target.outputStream().buffered(1024*1024).use{out->
-                        FastWire.receive(socket.getInputStream(),out,photo.size,key,context,photo.sha){done->wireProgress(generation,done,photo.size,total)}
+            var received=false
+            var lastError:Exception?=null
+            for(attempt in 1..maxTransferAttempts){
+                if(epoch!=generation)break
+                try{
+                    runOnUiThread{if(epoch==generation&&attempt>1)stageText.text="WI-FI LOCAL · nouvelle tentative $attempt/$maxTransferAttempts…"}
+                    server.accept().use{socket->
+                        wifiSocket=socket;socket.soTimeout=20000;socket.receiveBufferSize=1024*1024
+                        // Every attempt starts from a clean temporary file. The
+                        // authenticated stream is all-or-nothing, so a partial
+                        // file can never be published to the gallery.
+                        target.outputStream().buffered(1024*1024).use{out->
+                            FastWire.receive(socket.getInputStream(),out,photo.size,key,context,photo.sha){done->wireProgress(generation,done,photo.size,total)}
+                        }
+                    }
+                    received=true
+                    break
+                }catch(e:Exception){
+                    lastError=e
+                    target.delete()
+                    if(attempt<maxTransferAttempts){
+                        runOnUiThread{if(epoch==generation)status.text="Liaison interrompue · reprise automatique $attempt/$maxTransferAttempts…"}
+                        Thread.sleep(250)
                     }
                 }
-                runOnUiThread{if(epoch==generation&&state=="RX_FILE"){state="SAVING";touch();persistIncoming()}else target.delete()}
-            }catch(e:Exception){target.delete();runOnUiThread{if(epoch==generation)stop("Wi-Fi interrompu : ${e.message}. Vérifiez le même réseau et l’isolation des appareils.")}}
-            finally{runCatching{server.close()};key.fill(0)}
+            }
+            try{
+                if(received)runOnUiThread{if(epoch==generation&&state=="RX_FILE"){state="SAVING";touch();persistIncoming()}else target.delete()}
+                else if(epoch==generation)runOnUiThread{stop("Wi-Fi interrompu après $maxTransferAttempts tentatives : ${lastError?.message}. Vérifiez le même réseau et l’isolation des appareils.")}
+            }finally{runCatching{server.close()};key.fill(0)}
         }
     }
     private fun sendWifi(j:JSONObject){
@@ -509,24 +530,40 @@ class MainActivity : Activity() {
         val generation=epoch;val photo=files[index];val context="$batchId:$index";val total=files.sumOf{it.size}
         stage.visibility=View.VISIBLE;stageText.text="WI-FI LOCAL · connexion…"
         worker.execute{
-            try{
-                var connected:Socket?=null
-                for(host in hosts){
-                    require(epoch==generation){"Transfert annulé"}
-                    val socket=network.socketFactory.createSocket();wifiSocket=socket
-                    try{socket.connect(java.net.InetSocketAddress(host,port),2500);connected=socket;break}
-                    catch(e:Exception){socket.close()}
-                }
-                val socket=connected?:throw IOException("destinataire inaccessible sur ce Wi-Fi")
-                socket.use{
-                    it.sendBufferSize=1024*1024;it.soTimeout=20000
-                    photo.file!!.inputStream().buffered(1024*1024).use{input->
-                        FastWire.transfer(input,it.getOutputStream(),photo.size,key,context){done->wireProgress(generation,done,photo.size,total)}
+            var sent=false
+            var lastError:Exception?=null
+            for(attempt in 1..maxTransferAttempts){
+                if(epoch!=generation)break
+                try{
+                    runOnUiThread{if(epoch==generation&&attempt>1)stageText.text="WI-FI LOCAL · reprise $attempt/$maxTransferAttempts…"}
+                    var connected:Socket?=null
+                    for(host in hosts){
+                        require(epoch==generation){"Transfert annulé"}
+                        val socket=network.socketFactory.createSocket();wifiSocket=socket
+                        try{socket.connect(java.net.InetSocketAddress(host,port),2500);connected=socket;break}
+                        catch(e:Exception){socket.close()}
                     }
-                    it.shutdownOutput()
+                    val socket=connected?:throw IOException("destinataire inaccessible sur ce Wi-Fi")
+                    socket.use{
+                        it.sendBufferSize=1024*1024;it.soTimeout=20000
+                        photo.file!!.inputStream().buffered(1024*1024).use{input->
+                            FastWire.transfer(input,it.getOutputStream(),photo.size,key,context){done->wireProgress(generation,done,photo.size,total)}
+                        }
+                        it.shutdownOutput()
+                    }
+                    sent=true
+                    break
+                }catch(e:Exception){
+                    lastError=e
+                    if(attempt<maxTransferAttempts){
+                        runOnUiThread{if(epoch==generation)status.text="Envoi interrompu · reprise automatique $attempt/$maxTransferAttempts…"}
+                        Thread.sleep(250)
+                    }
                 }
-            }catch(e:Exception){runOnUiThread{if(epoch==generation)stop("Envoi Wi-Fi impossible : ${e.message}")}}
-            finally{key.fill(0)}
+            }
+            try{
+                if(!sent&&epoch==generation)runOnUiThread{stop("Envoi Wi-Fi impossible après $maxTransferAttempts tentatives : ${lastError?.message}")}
+            }finally{key.fill(0)}
         }
     }
     private fun openIncoming(){
@@ -601,8 +638,3 @@ bar.progress=if(total>0)((done*100/total).toInt()).coerceAtMost(99) else 0;progr
     // Android may call onStop while a Nearby permission/authentication window
     // is being shown. Do not tear down the transport from that lifecycle hook;
     // explicit Stop, timeout, disconnect, or destruction still performs cleanup.
-    override fun onStop(){super.onStop()}
-    override fun onDestroy(){runCatching{wifiSocket?.close()};runCatching{wifiServer?.close()};clearNfc();epoch++;handler.removeCallbacksAndMessages(null);runCatching{radio.stopAllEndpoints();radio.stopAdvertising();radio.stopDiscovery();output?.close()};files.forEach{it.file?.delete()};currentFile?.delete();worker.shutdown();super.onDestroy()}
-    private fun hex(bytes:ByteArray)=bytes.joinToString(""){"%02x".format(it)}
-    private fun mb(n:Long)=String.format(java.util.Locale.FRANCE,"%.1f",n/1048576.0)
-}
