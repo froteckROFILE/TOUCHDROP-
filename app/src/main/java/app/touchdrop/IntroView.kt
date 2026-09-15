@@ -25,7 +25,9 @@ class IntroView(context:Context):View(context){
         fun collect(begin:Float){
             for(y in 0 until mh step step)for(x in 0 until mw step step){
                 if(Color.alpha(bitmap.getPixel(x,y))>90){
-                    repeat(3){
+                    // Four grains per mask sample gives a dense, volumetric
+                    // sand field while the final cap keeps rendering bounded.
+                    repeat(4){
                     val gx=(x+random.nextFloat()*step)/scale;val gy=(y+random.nextFloat()*step)/scale
                     list.add(Grain(gx,gy,gx-w*(.12f+random.nextFloat()*.25f),gy+(random.nextFloat()-.5f)*h*.18f,
                         random.nextFloat()*6.283f,begin+random.nextFloat()*.5f,6.8f+random.nextFloat()*1.3f,.12f+random.nextFloat()*.22f,
@@ -43,9 +45,14 @@ class IntroView(context:Context):View(context){
             paint.color=Color.WHITE;paint.alpha=255
             mask.drawText(ch.toString(),x,h*.5f-(paint.ascent()+paint.descent())/2,paint);collect(.1f+i*.18f);x+=sizes[i]
         }
-        val markHeight=w*.065f;val markLeft=(w-markHeight*3.4f)/2
-        repeat(4){i->paint.color=Color.WHITE;BnetMark.letter(mask,paint,i,markLeft+i*markHeight*.88f,h*.60f,markHeight);collect(2.3f+i*.18f)}
-        grains=list;bitmap.recycle();start=SystemClock.uptimeMillis()
+        val markSize=w*.30f
+        paint.color=Color.WHITE
+        BnetMark.drawLogo(mask,paint,w*.5f,h*.60f,markSize)
+        collect(2.25f)
+        // Keep the requested 10,000-grain signature deterministic and smooth
+        // on mid-range phones, without changing the logo silhouette.
+        if(list.size>10000){list.shuffle(random);grains=list.take(10000)}else grains=list
+        bitmap.recycle();start=SystemClock.uptimeMillis()
     }
     override fun onDraw(c:Canvas){
         if(start==0L)return
@@ -85,7 +92,7 @@ class IntroView(context:Context):View(context){
         paint.typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL)
         paint.color=Color.rgb(236,214,170)
         paint.alpha=(((t-4.6f)/1.4f).coerceIn(0f,1f)*(1-((t-8.6f)/2.4f).coerceIn(0f,1f))*255).toInt()
-        listOf("C O M P A N Y","ENGINEERING BY LABED ABDNOUR").forEachIndexed{i,line->
+        listOf("BNET COMPANY","ENGINEERING BY LABED ABDNOUR").forEachIndexed{i,line->
             paint.textSize=w*.028f
             if(paint.measureText(line)>w*.86f)paint.textSize*=w*.86f/paint.measureText(line)
             c.drawText(line,(w-paint.measureText(line))/2,h*(.70f+i*.032f),paint)
