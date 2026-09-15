@@ -638,3 +638,8 @@ bar.progress=if(total>0)((done*100/total).toInt()).coerceAtMost(99) else 0;progr
     // Android may call onStop while a Nearby permission/authentication window
     // is being shown. Do not tear down the transport from that lifecycle hook;
     // explicit Stop, timeout, disconnect, or destruction still performs cleanup.
+    override fun onStop(){super.onStop()}
+    override fun onDestroy(){runCatching{wifiSocket?.close()};runCatching{wifiServer?.close()};clearNfc();epoch++;handler.removeCallbacksAndMessages(null);runCatching{radio.stopAllEndpoints();radio.stopAdvertising();radio.stopDiscovery();output?.close()};files.forEach{it.file?.delete()};currentFile?.delete();worker.shutdown();super.onDestroy()}
+    private fun hex(bytes:ByteArray)=bytes.joinToString(""){"%02x".format(it)}
+    private fun mb(n:Long)=String.format(java.util.Locale.FRANCE,"%.1f",n/1048576.0)
+}
